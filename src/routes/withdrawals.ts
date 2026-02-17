@@ -5,6 +5,7 @@ import { alertAdmin, withdrawRequested, withdrawStatus } from "../utils/mailer";
 import { requireAuth, requireAdmin, requireSelfOrAdmin, AuthRequest } from "../middleware/auth";
 import { validate, withdrawalSchema } from "../middleware/validation";
 import { withdrawalLimiter } from "../middleware/rateLimiter";
+import { logAudit } from "../utils/auditLogger";
 
 const router = express.Router();
 
@@ -230,14 +231,27 @@ router.post("/", requireAuth, requireSelfOrAdmin, withdrawalLimiter, validate(wi
 // Update withdrawal status and sync with NOWPayments (admin only)
 router.put("/:id", requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
 	const { id } = req.params;
-	const { email, amount, status } = req.body;
+	const { status } = req.body;
+	if (!["approved", "rejected", "processing", "pending"].includes(String(status))) {
+		return res.status(400).json({ message: "Invalid status" });
+	}
 
 	try {
 		let withdrawal = await Transaction.findById(id);
 		if (!withdrawal) return res.status(404).json({ message: "Withdrawal not found" });
+		const before = {
+			status: withdrawal.status,
+			amount: withdrawal.amount,
+			userEmail: withdrawal.user?.email || "",
+		};
 
-		let user = await User.findOne({ email });
+		const userEmail = withdrawal.user?.email;
+		let user = await User.findOne({ email: userEmail });
 		if (!user) return res.status(400).json({ message: "User not found..." });
+		if (user.isAdmin || user.role === "admin") {
+			return res.status(403).json({ message: "Admin account balance mutation is restricted" });
+		}
+		const amount = Number(withdrawal.amount) || 0;
 
 		const previousStatus = withdrawal.status;
 		withdrawal.status = status;
@@ -269,6 +283,23 @@ router.put("/:id", requireAuth, requireAdmin, async (req: AuthRequest, res: Resp
 		} else if (status === "rejected") {
 			await withdrawStatus(user.email, user.fullName, amount, withdrawal.date, false);
 		}
+		await logAudit({
+			req,
+			action: "WITHDRAWAL_STATUS_UPDATED",
+			actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+			target: { entityType: "withdrawal", entityId: String(withdrawal._id), userId: String(user._id), email: user.email },
+			before,
+			after: {
+				status: withdrawal.status,
+				amount: withdrawal.amount,
+				userEmail: user.email,
+				userDeposit: user.deposit,
+				userInterest: user.interest,
+				userWithdraw: user.withdraw,
+			},
+			success: true,
+			message: "Withdrawal updated",
+		});
 
 		res.json({ message: "Withdrawal successfully updated" });
 	} catch (e: any) {

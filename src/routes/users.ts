@@ -6,12 +6,34 @@ import fs from "fs";
 import { User } from "../models/user";
 import { Transaction } from "../models/transaction";
 import { Otp } from "../models/otp";
+import { AuditLog } from "../models/auditLog";
 import { welcomeMail, passwordResetCode, passwordResetConfirmation } from "../utils/mailer";
 import { requireAdmin, requireAuth, requireSelfOrAdmin, AuthRequest } from "../middleware/auth";
 import { validate, passwordResetRequestSchema, passwordResetVerifySchema, updateProfileSchema, kycSubmissionSchema, adminUpdateUserSchema } from "../middleware/validation";
 import { passwordResetLimiter } from "../middleware/rateLimiter";
+import { logAudit } from "../utils/auditLogger";
 
 const router = express.Router();
+
+const ADMIN_LOCKED_FIELDS = ["role", "isAdmin", "mfaSecret", "mfaBackupCodes", "mfaEnabledAt"];
+
+function userSnapshot(user: any) {
+	return {
+		_id: String(user._id),
+		email: user.email,
+		username: user.username,
+		role: user.role,
+		isAdmin: user.isAdmin,
+		accountStatus: user.accountStatus,
+		kycStatus: user.kycStatus,
+		deposit: user.deposit,
+		interest: user.interest,
+		withdraw: user.withdraw,
+		bonus: user.bonus,
+		accountNumber: user.accountNumber,
+		routingNumber: user.routingNumber,
+	};
+}
 
 // Multer configuration for profile image uploads
 const storage = multer.diskStorage({
@@ -298,6 +320,41 @@ router.get("/admin/stats", requireAuth, requireAdmin, async (req: AuthRequest, r
 	}
 });
 
+// Admin audit logs endpoint
+router.get("/admin/audit-logs", requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+	try {
+		const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
+		const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
+		const action = String(req.query.action || "").trim();
+		const actorId = String(req.query.actorId || "").trim();
+		const targetId = String(req.query.targetId || "").trim();
+		const success = String(req.query.success || "").trim();
+
+		const filter: Record<string, any> = {};
+		if (action) filter.action = action;
+		if (actorId) filter["actor.userId"] = actorId;
+		if (targetId) filter["target.entityId"] = targetId;
+		if (success === "true" || success === "false") filter["outcome.success"] = success === "true";
+
+		const skip = (page - 1) * limit;
+		const [logs, total] = await Promise.all([
+			AuditLog.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+			AuditLog.countDocuments(filter),
+		]);
+
+		return res.json({
+			logs,
+			total,
+			page,
+			limit,
+			totalPages: Math.ceil(total / limit),
+		});
+	} catch (error) {
+		console.error("Error fetching audit logs:", error);
+		return res.status(500).json({ message: "Failed to fetch audit logs" });
+	}
+});
+
 // Password reset request
 router.post("/password-reset/request", passwordResetLimiter, validate(passwordResetRequestSchema), async (req: Request, res: Response) => {
 	try {
@@ -365,16 +422,20 @@ router.get("/", requireAuth, requireAdmin, async (req: AuthRequest, res: Respons
 	try {
 		const { page = "1", limit = "10", search = "" } = req.query;
 
-		// Build filter
-		const filter: any = {};
+		// Build filter: exclude admin accounts from manage-users listing
+		const filter: any = {
+			$and: [{ isAdmin: { $ne: true } }, { role: { $ne: "admin" } }],
+		};
 		if (search) {
 			const searchRegex = new RegExp(search as string, "i");
-			filter.$or = [
+			filter.$and.push({
+				$or: [
 				{ username: searchRegex },
 				{ email: searchRegex },
 				{ firstName: searchRegex },
 				{ lastName: searchRegex },
-			];
+				],
+			});
 		}
 
 		// Pagination
@@ -405,11 +466,27 @@ router.get("/", requireAuth, requireAdmin, async (req: AuthRequest, res: Respons
 router.put("/:id/status", requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
 	try {
 		const { accountStatus, kycStatus } = req.body;
+		const forbidden = ADMIN_LOCKED_FIELDS.filter((field) => field in req.body);
+		if (forbidden.length) {
+			await logAudit({
+				req,
+				action: "USER_STATUS_UPDATE_BLOCKED",
+				actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+				target: { entityType: "user", entityId: req.params.id },
+				success: false,
+				message: `Attempted forbidden fields: ${forbidden.join(", ")}`,
+			});
+			return res.status(403).json({ message: "Forbidden fields in request" });
+		}
 
 		const user = await User.findById(req.params.id);
 		if (!user) {
 			return res.status(404).json({ message: "User not found" });
 		}
+		if (user.isAdmin || user.role === "admin") {
+			return res.status(403).json({ message: "Admin account mutation is restricted" });
+		}
+		const before = userSnapshot(user);
 
 		if (accountStatus) user.accountStatus = accountStatus;
 		if (kycStatus) {
@@ -423,6 +500,16 @@ router.put("/:id/status", requireAuth, requireAdmin, async (req: AuthRequest, re
 		}
 
 		await user.save();
+		await logAudit({
+			req,
+			action: "USER_STATUS_UPDATED",
+			actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+			target: { entityType: "user", entityId: String(user._id), userId: String(user._id), email: user.email },
+			before,
+			after: userSnapshot(user),
+			success: true,
+			message: "User status updated",
+		});
 
 		res.json({ message: "User status updated successfully" });
 	} catch (error) {
@@ -509,6 +596,18 @@ router.delete("/:identifier", requireAuth, requireAdmin, async (req: AuthRequest
 		if (!user) {
 			return res.status(404).json({ message: "User not found" });
 		}
+		if (user.isAdmin || user.role === "admin") {
+			await logAudit({
+				req,
+				action: "USER_DELETE_BLOCKED",
+				actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+				target: { entityType: "user", entityId: String(user._id), userId: String(user._id), email: user.email },
+				success: false,
+				message: "Attempted deletion of admin account",
+			});
+			return res.status(403).json({ message: "Admin account deletion is restricted" });
+		}
+		const before = userSnapshot(user);
 
 		// Delete user's transactions first
 		await Transaction.deleteMany({ userId: user._id });
@@ -526,6 +625,16 @@ router.delete("/:identifier", requireAuth, requireAdmin, async (req: AuthRequest
 
 		// Delete the user
 		await User.findByIdAndDelete(user._id);
+		await logAudit({
+			req,
+			action: "USER_DELETED",
+			actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+			target: { entityType: "user", entityId: String(user._id), userId: String(user._id), email: user.email },
+			before,
+			after: null,
+			success: true,
+			message: "User deleted",
+		});
 
 		res.json({ message: "User deleted successfully" });
 	} catch (error) {
@@ -606,6 +715,18 @@ router.get("/lookup", requireAuth, async (req: AuthRequest, res: Response) => {
 router.put("/admin/:id", requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
 	try {
 		const { id } = req.params;
+		const forbidden = ADMIN_LOCKED_FIELDS.filter((field) => field in req.body);
+		if (forbidden.length) {
+			await logAudit({
+				req,
+				action: "USER_ADMIN_UPDATE_BLOCKED",
+				actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+				target: { entityType: "user", entityId: id },
+				success: false,
+				message: `Attempted forbidden fields: ${forbidden.join(", ")}`,
+			});
+			return res.status(403).json({ message: "role/isAdmin and security fields cannot be updated via this endpoint" });
+		}
 		const {
 			firstName,
 			lastName,
@@ -633,6 +754,10 @@ router.put("/admin/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 		if (!user) {
 			return res.status(404).json({ message: "User not found" });
 		}
+		if (user.isAdmin || user.role === "admin") {
+			return res.status(403).json({ message: "Admin account mutation is restricted" });
+		}
+		const before = userSnapshot(user);
 
 		// Basic profile
 		if (firstName) user.firstName = firstName;
@@ -680,6 +805,16 @@ router.put("/admin/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 		}
 
 		await user.save();
+		await logAudit({
+			req,
+			action: "USER_ADMIN_UPDATED",
+			actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+			target: { entityType: "user", entityId: String(user._id), userId: String(user._id), email: user.email },
+			before,
+			after: userSnapshot(user),
+			success: true,
+			message: "Admin user update applied",
+		});
 		const sanitized = await User.findById(id).select("-password");
 		return res.json({ message: "User updated", user: sanitized });
 	} catch (error: any) {

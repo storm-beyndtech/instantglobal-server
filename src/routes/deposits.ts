@@ -10,8 +10,71 @@ import {
 import { requireAuth, requireAdmin, requireSelfOrAdmin, AuthRequest } from "../middleware/auth";
 import { validate, depositSchema } from "../middleware/validation";
 import { depositLimiter } from "../middleware/rateLimiter";
+import { logAudit } from "../utils/auditLogger";
 
 const router = express.Router();
+
+async function processDepositDecision(req: AuthRequest, res: express.Response, id: string, status: string) {
+  if (!["approved", "rejected"].includes(status)) {
+    return res.status(400).json({ message: "Invalid status" });
+  }
+
+  try {
+    const deposit = await Transaction.findById(id);
+    if (!deposit) return res.status(404).json({ message: "Deposit not found" });
+    const before = {
+      status: deposit.status,
+      amount: deposit.amount,
+      userEmail: deposit.user?.email || "",
+    };
+
+    const userEmail = deposit.user?.email;
+    const user = await User.findOne({ email: userEmail });
+    if (!user) return res.status(400).json({ message: "User not found" });
+    if (user.isAdmin || user.role === "admin") {
+      return res.status(403).json({ message: "Admin account balance mutation is restricted" });
+    }
+    const amount = Number(deposit.amount) || 0;
+
+    deposit.status = status;
+    await deposit.save();
+
+    if (status === "approved") {
+      user.deposit += amount;
+      await user.save();
+
+      // Give 5% referral bonus
+      if (user.referral?.code) {
+        const referrer = await User.findOne({ username: user.referral.code });
+        if (referrer) {
+          const bonus = amount * 0.05;
+          referrer.deposit += bonus;
+          await referrer.save();
+          await referralCommission(referrer.email, referrer.fullName, bonus, user.fullName);
+        }
+      }
+
+      await depositStatus(user.email, user.fullName, amount, deposit.date, true);
+    } else {
+      await depositStatus(user.email, user.fullName, amount, deposit.date, false);
+    }
+    await logAudit({
+      req,
+      action: "DEPOSIT_STATUS_UPDATED",
+      actor: { userId: req.user?.userId, email: req.user?.email, isAdmin: req.user?.isAdmin },
+      target: { entityType: "deposit", entityId: String(deposit._id), userId: String(user._id), email: user.email },
+      before,
+      after: { status: deposit.status, amount: deposit.amount, userEmail: user.email, userDeposit: user.deposit },
+      success: true,
+      message: `Deposit ${status}`,
+    });
+
+    return res.json({ message: `Deposit ${status}` });
+  } catch (error) {
+    console.error("Update deposit error:", error);
+    return res.status(500).json({ message: "Update failed" });
+  }
+}
 
 // GET: All deposits (admin only)
 router.get("/", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
@@ -79,52 +142,19 @@ router.post("/", requireAuth, requireSelfOrAdmin, depositLimiter, validate(depos
 // PUT: Approve or reject deposit (admin only)
 router.put("/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const { id } = req.params;
-  const { email, amount, status } = req.body;
+  const { status } = req.body;
+  return processDepositDecision(req, res, id, status);
+});
 
-  if (!["approved", "rejected"].includes(status)) {
-    return res.status(400).json({ message: "Invalid status" });
-  }
+// POST fallback for environments where PUT is blocked by upstream proxies
+router.post("/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  return processDepositDecision(req, res, id, "approved");
+});
 
-  try {
-    const deposit = await Transaction.findById(id);
-    if (!deposit) return res.status(404).json({ message: "Deposit not found" });
-
-    const user = await User.findOne({ email });
-    if (!user) return res.status(400).json({ message: "User not found" });
-
-    deposit.status = status;
-    await deposit.save();
-
-    if (status === "approved") {
-      user.deposit += amount;
-      await user.save();
-
-      // Give 5% referral bonus
-      if (user.referral?.code) {
-        const referrer = await User.findOne({ username: user.referral.code });
-        if (referrer) {
-          const bonus = amount * 0.05;
-          referrer.deposit += bonus;
-          await referrer.save();
-          await referralCommission(
-            referrer.email,
-            referrer.fullName,
-            bonus,
-            user.fullName
-          );
-        }
-      }
-
-      await depositStatus(user.email, user.fullName, amount, deposit.date, true);
-    } else {
-      await depositStatus(user.email, user.fullName, amount, deposit.date, false);
-    }
-
-    res.json({ message: `Deposit ${status}` });
-  } catch (error) {
-    console.error("Update deposit error:", error);
-    res.status(500).json({ message: "Update failed" });
-  }
+router.post("/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  const { id } = req.params;
+  return processDepositDecision(req, res, id, "rejected");
 });
 
 // DELETE: Remove a deposit (admin only)

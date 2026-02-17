@@ -1,10 +1,13 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
+import { User } from "../models/user";
 
 export interface JWTPayload {
 	userId: string;
 	email: string;
 	isAdmin?: boolean;
+	role?: string;
+	accountStatus?: string;
 	iat?: number;
 	exp?: number;
 }
@@ -13,7 +16,7 @@ export interface AuthRequest extends Request {
 	user?: JWTPayload;
 }
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
 	try {
 		const authHeader = req.headers.authorization;
 		if (!authHeader) {
@@ -29,7 +32,18 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
 		}
 
 		const payload = jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
-		req.user = payload;
+		const dbUser = await User.findById(payload.userId).select("_id email isAdmin role accountStatus");
+		if (!dbUser) {
+			return res.status(401).json({ message: "Invalid token user" });
+		}
+
+		req.user = {
+			userId: String(dbUser._id),
+			email: dbUser.email,
+			isAdmin: Boolean(dbUser.isAdmin || dbUser.role === "admin"),
+			role: dbUser.role,
+			accountStatus: dbUser.accountStatus,
+		};
 		return next();
 	} catch (err: unknown) {
 		const error = err as Error;

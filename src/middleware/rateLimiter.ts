@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from "express";
-import { rateLimit } from "express-rate-limit";
+import { rateLimit, ipKeyGenerator } from "express-rate-limit";
 
 // Login rate limiter: 10 attempts per 15 minutes
 export const loginLimiter = rateLimit({
@@ -10,7 +10,7 @@ export const loginLimiter = rateLimit({
 	legacyHeaders: false,
 	// Use email from request body as key
 	keyGenerator: (req: Request) => {
-		return req.body.identifier || req.ip || "unknown";
+		return req.body.identifier || ipKeyGenerator(req.ip || "unknown");
 	},
 });
 
@@ -22,7 +22,7 @@ export const passwordResetLimiter = rateLimit({
 	standardHeaders: true,
 	legacyHeaders: false,
 	keyGenerator: (req: Request) => {
-		return req.body.email || req.ip || "unknown";
+		return req.body.email || ipKeyGenerator(req.ip || "unknown");
 	},
 });
 
@@ -43,7 +43,7 @@ export const withdrawalLimiter = rateLimit({
 	standardHeaders: true,
 	legacyHeaders: false,
 	keyGenerator: (req: Request) => {
-		return req.body.id || req.body.userId || req.ip || "unknown";
+		return req.body.id || req.body.userId || ipKeyGenerator(req.ip || "unknown");
 	},
 });
 
@@ -55,7 +55,7 @@ export const depositLimiter = rateLimit({
 	standardHeaders: true,
 	legacyHeaders: false,
 	keyGenerator: (req: Request) => {
-		return req.body.id || req.body.userId || req.ip || "unknown";
+		return req.body.id || req.body.userId || ipKeyGenerator(req.ip || "unknown");
 	},
 });
 
