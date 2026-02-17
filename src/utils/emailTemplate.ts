@@ -17,9 +17,10 @@ export function emailTemplate(bodyContent: string): string {
             <!-- Footer -->
             <tr>
               <td align="center" style="padding: 20px; background: #13160F; color: #fafafa; font-size: 12px;">
-                © 2025 99Infinite | All Rights Reserved
+                © 2025 InstantGlobal | All Rights Reserved
               </td>
             </tr>
           </table>
   `;
 }
+

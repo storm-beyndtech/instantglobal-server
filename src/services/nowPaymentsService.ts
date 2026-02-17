@@ -92,7 +92,7 @@ class NOWPaymentsService {
         headers: {
           'x-api-key': this.config.apiKey,
           'Content-Type': 'application/json',
-          'User-Agent': '99Infinite-Server/1.0',
+          'User-Agent': 'InstantGlobal-Server/1.0',
           ...options.headers
         }
       };

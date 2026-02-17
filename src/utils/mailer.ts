@@ -39,7 +39,7 @@ export async function welcomeMail(userEmail: string, fullName: string = "Valued 
 	try {
 		const bodyContent = `
       <p>Dear <span class="gold-accent">${fullName}</span>,</p>
-      <p>Welcome to the <strong>99Infinite Gold Contract Platform</strong>!</p>
+      <p>Welcome to the <strong>InstantGlobal Gold Contract Platform</strong>!</p>
       <p>
         We're thrilled to have you as part of our exclusive contract community. Your KYC verification has been approved
         and you can now access our premium gold-backed contract plans.
@@ -50,16 +50,16 @@ export async function welcomeMail(userEmail: string, fullName: string = "Valued 
       </p>
       <p>
         If you have questions or need assistance, reach out to our dedicated support team at 
-        <a href="mailto:support@99infinite.club" class="gold-accent">support@99infinite.club</a>.
+        <a href="mailto:support@instantglobal.com" class="gold-accent">support@instantglobal.com</a>.
       </p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: "Welcome to 99Infinite - Gold Contract Platform",
+			subject: "Welcome to InstantGlobal - Gold Contract Platform",
 			html: emailTemplate(bodyContent),
 		};
 
@@ -95,16 +95,16 @@ export async function withdrawRequested(
       </p>
       <p>
         For urgent matters, contact our support team at 
-        <a href="mailto:support@99infinite.club" class="gold-accent">support@99infinite.club</a>.
+        <a href="mailto:support@instantglobal.com" class="gold-accent">support@instantglobal.com</a>.
       </p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: "Withdrawal Request Received - 99Infinite",
+			subject: "Withdrawal Request Received - InstantGlobal",
 			html: emailTemplate(bodyContent),
 		};
 
@@ -143,16 +143,16 @@ export async function withdrawStatus(
 			}
       <p>
         If you have any questions, contact our support team at 
-        <a href="mailto:support@99infinite.club" class="gold-accent">support@99infinite.club</a>.
+        <a href="mailto:support@instantglobal.com" class="gold-accent">support@instantglobal.com</a>.
       </p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: `Withdrawal ${status} - 99Infinite`,
+			subject: `Withdrawal ${status} - InstantGlobal`,
 			html: emailTemplate(bodyContent),
 		};
 
@@ -183,8 +183,8 @@ export async function alertAdmin(
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
-			to: process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || "admin@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
+			to: process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || "admin@instantglobal.com",
 			subject: `Admin Alert: New ${type} - $${amount.toFixed(2)}`,
 			html: emailTemplate(bodyContent),
 		};
@@ -199,20 +199,22 @@ export async function alertAdmin(
 // Password reset
 export async function passwordResetCode(userEmail: string, resetCode: string, fullName: string = "Valued Customer"): Promise<void> {
 	try {
+		const passwordResetUrl = process.env.PASSWORD_RESET_URL || process.env.APP_URL || "https://instantsglobal.com/";
 		const bodyContent = `
       <p>Dear <span class="gold-accent">${fullName}</span>,</p>
-      <p>You requested a password reset for your 99Infinite account.</p>
+      <p>You requested a password reset for your InstantGlobal account.</p>
       <p>Your reset code is: <strong class="gold-accent" style="font-size: 24px; letter-spacing: 2px;">${resetCode}</strong></p>
       <p>This code will expire in 15 minutes for security reasons.</p>
+      <p>Reset password here: <a href="${passwordResetUrl}" class="gold-accent">${passwordResetUrl}</a></p>
       <p>If you didn't request this reset, please ignore this email.</p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: "Password Reset Code - 99Infinite",
+			subject: "Password Reset Code - InstantGlobal",
 			html: emailTemplate(bodyContent),
 		};
 
@@ -237,13 +239,13 @@ export async function passwordResetConfirmation(userEmail: string, fullName: str
         <li>Never sharing your login credentials</li>
       </ul>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: "Password Reset Successful - 99Infinite",
+			subject: "Password Reset Successful - InstantGlobal",
 			html: emailTemplate(bodyContent),
 		};
 
@@ -279,16 +281,16 @@ export async function depositRequested(
       </p>
       <p>
         For urgent matters, contact our support team at 
-        <a href="mailto:support@99infinite.club" class="gold-accent">support@99infinite.club</a>.
+        <a href="mailto:support@instantglobal.com" class="gold-accent">support@instantglobal.com</a>.
       </p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: "Deposit Request Received - 99Infinite",
+			subject: "Deposit Request Received - InstantGlobal",
 			html: emailTemplate(bodyContent),
 		};
 
@@ -327,16 +329,16 @@ export async function depositStatus(
 			}
       <p>
         If you have any questions, contact our support team at 
-        <a href="mailto:support@99infinite.club" class="gold-accent">support@99infinite.club</a>.
+        <a href="mailto:support@instantglobal.com" class="gold-accent">support@instantglobal.com</a>.
       </p>
       <p>Best regards,</p>
-      <p><strong>The 99Infinite Team</strong></p>
+      <p><strong>The InstantGlobal Team</strong></p>
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
-			subject: `Deposit ${status} - 99Infinite`,
+			subject: `Deposit ${status} - InstantGlobal`,
 			html: emailTemplate(bodyContent),
 		};
 
@@ -363,15 +365,15 @@ export async function kycRequested(userEmail: string, fullName = "Valued Custome
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99infinite Team</p>
+        <p>The instantglobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "KYC Request Submitted Successfully",
 			html: emailTemplate(bodyContent),
@@ -400,15 +402,15 @@ export async function kycRejected(userEmail: string, fullName = "Valued Customer
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99infinite Team</p>
+        <p>The instantglobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "KYC Rejected Successfully",
 			html: emailTemplate(bodyContent),
@@ -431,15 +433,15 @@ export async function multiMails(emails: string[], subject: string, message: str
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99infinite Team</p>
+        <p>The instantglobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: emails,
 			subject: subject,
 			html: emailTemplate(bodyContent),
@@ -465,15 +467,15 @@ export async function referralCommission(userEmail: string, fullName: string, am
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99infinite Team</p>
+        <p>The instantglobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "Referral Commission",
 			html: emailTemplate(bodyContent),
@@ -499,15 +501,15 @@ export async function interestAdded(userEmail:string, fullName:string, amount:nu
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99Infinite Team</p>
+        <p>The InstantGlobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "Interest added to your balance",
 			html: emailTemplate(bodyContent),
@@ -533,15 +535,15 @@ export async function contractCompleted(userEmail:string, fullName:string, amoun
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99Infinite Team</p>
+        <p>The InstantGlobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "Contract successfully completed",
 			html: emailTemplate(bodyContent),
@@ -570,15 +572,15 @@ export async function contractApproved(userEmail:string, fullName:string, amount
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99Infinite Team</p>
+        <p>The InstantGlobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "Contract Approved",
 			html: emailTemplate(bodyContent),
@@ -607,15 +609,15 @@ export async function contractRejected(userEmail:string, fullName:string, amount
         </p>
         <p>
           If you have questions or need assistance, reach out 
-          to our support team at support@99infinite.club.
+          to our support team at support@instantglobal.com.
         </p>
         <p>Best regards</p>
-        <p>The 99Infinite Team</p>
+        <p>The InstantGlobal Team</p>
       </td>
     `;
 
 		let mailOptions = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
 			to: userEmail,
 			subject: "Contract Request Rejected",
 			html: emailTemplate(bodyContent),
@@ -649,8 +651,8 @@ export async function adminNewUserAlert(
     `;
 
 		const mailData: MailData = {
-			from: process.env.EMAIL_FROM || "noreply@99infinite.club",
-			to: process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || "admin@99infinite.club",
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
+			to: process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || "admin@instantglobal.com",
 			subject: `New User Registration - ${fullName} (${username})`,
 			html: emailTemplate(bodyContent),
 		};
@@ -737,3 +739,4 @@ export async function sendContactFormEmail(data: {
 		throw error;
 	}
 }
+

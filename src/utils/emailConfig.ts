@@ -6,13 +6,15 @@ let _verified = false;
 // Lazy initialization - create transporter only when first accessed
 export const getTransporter = () => {
   if (!_transporter) {
+    const smtpUser = process.env.EMAIL_USER || process.env.SMTP_USER;
+    const smtpPass = process.env.EMAIL_PASS || process.env.SMTP_PASS;
     _transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST || 'smtp.hostinger.com',
       port: parseInt(process.env.EMAIL_PORT || '465'),
       secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
       auth: {
-        user: process.env.EMAIL_USER, // support@99infinite.club
-        pass: process.env.EMAIL_PASS, // hostinger email password
+        user: smtpUser, // support@instantglobal.com
+        pass: smtpPass, // hostinger email password
       },
     });
 
@@ -36,3 +38,4 @@ export const transporter = {
   sendMail: (...args: any[]) => getTransporter().sendMail(...args),
   verify: (...args: any[]) => getTransporter().verify(...args),
 };
+

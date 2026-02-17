@@ -22,6 +22,9 @@ import kycRoutes from "./routes/kycs";
 import bankingRoutes from "./routes/banking";
 import contactRoutes from "./routes/contact";
 import flightRoutes from "./routes/flights";
+import mfaRoutes from "./routes/mfa";
+import cardsRoutes from "./routes/cards";
+import giftcardsRoutes from "./routes/giftcards";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -32,9 +35,9 @@ const allowedOrigins = [
 	"http://localhost:5173",
 	"http://localhost:5174",
 	"http://localhost:3000",
-	"https://99infinite.vercel.app",
-	"https://www.99infinite.club",
-	"https://99infinite.club",
+	"https://instantsglobal.com",
+	"https://www.instantsglobal.com",
+	"https://instantsglobal.com",
 ];
 
 // ✅ Configure CORS dynamically
@@ -100,6 +103,9 @@ app.use("/api/kycs", kycRoutes);
 app.use("/api/banking", bankingRoutes);
 app.use("/api/contact", contactRoutes);
 app.use("/api/flights", flightRoutes);
+app.use("/api/mfa", mfaRoutes);
+app.use("/api/cards", cardsRoutes);
+app.use("/api/giftcards", giftcardsRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
@@ -144,3 +150,4 @@ startServer().catch((error) => {
 	console.error("Failed to start server:", error);
 	process.exit(1);
 });
+

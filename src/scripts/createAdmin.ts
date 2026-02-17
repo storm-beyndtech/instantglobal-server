@@ -2,25 +2,55 @@ import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
 import { User } from "../models/user";
 import dotenv from "dotenv";
+import path from "path";
 
 // Load environment variables
+dotenv.config({ path: path.resolve(__dirname, "../../.env") });
 dotenv.config();
+
+async function connectWithRetry(uri: string, maxRetries = 3): Promise<void> {
+	for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		try {
+			await mongoose.connect(uri, {
+				serverSelectionTimeoutMS: 10000,
+				connectTimeoutMS: 10000,
+			});
+			console.log("✅ Connected to MongoDB");
+			return;
+		} catch (error) {
+			const isLastAttempt = attempt === maxRetries;
+			console.error(`❌ MongoDB connection attempt ${attempt}/${maxRetries} failed:`, error);
+			if (isLastAttempt) {
+				throw error;
+			}
+			const delayMs = attempt * 2000;
+			console.log(`🔄 Retrying MongoDB connection in ${delayMs / 1000}s...`);
+			await new Promise((resolve) => setTimeout(resolve, delayMs));
+		}
+	}
+}
 
 async function createAdminAccount() {
 	try {
 		// Connect to MongoDB
 		const mongoUri = process.env.MONGODB_URI;
 		if (!mongoUri) {
-			throw new Error("MONGODB_URI not found in environment variables");
+			throw new Error(
+				"MONGODB_URI not found. Ensure it exists in server/.env or current environment variables.",
+			);
 		}
 
-		await mongoose.connect(mongoUri);
-		console.log("✅ Connected to MongoDB");
+		await connectWithRetry(mongoUri);
 
-		// Admin account details
-		const adminEmail = "admin@instantglobal.com";
-		const adminPassword = "Admin@123456";
-		const adminUsername = "admin";
+		// Admin account details (prefer env-driven credentials)
+		const adminEmail =
+			process.env.ADMIN_EMAIL || process.env.SMTP_USER || process.env.EMAIL_USER || "admin@instantglobal.com";
+		const adminPassword =
+			process.env.ADMIN_PASSWORD ||
+			process.env.SMTP_PASS ||
+			process.env.EMAIL_PASS ||
+			"Admin@123456";
+		const adminUsername = adminEmail.split("@")[0] || "admin";
 
 		// Check if admin already exists
 		const existingAdmin = await User.findOne({ email: adminEmail });
@@ -117,6 +147,7 @@ async function createAdminAccount() {
 		console.log("\n✅ Database connection closed");
 	} catch (error) {
 		console.error("❌ Error creating admin account:", error);
+		await mongoose.connection.close().catch(() => null);
 		process.exit(1);
 	}
 }

@@ -166,7 +166,7 @@ router.post("/register", registrationLimiter, validate(registerSchema), async (r
 
 router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, res: Response) => {
 	try {
-		const { identifier, password } = req.body;
+		const { identifier, password, mfaCode } = req.body;
 
 		if (!identifier || !password) {
 			return res.status(400).json({ message: "Missing credentials" });
@@ -174,7 +174,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 
 		const user = await User.findOne({
 			$or: [{ email: identifier }, { username: identifier }],
-		});
+		}).select("+mfaSecret");
 
 		if (!user) {
 			return res.status(400).json({ message: "Invalid credentials" });
@@ -191,6 +191,49 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 			return res.status(500).json({ message: "Server configuration error" });
 		}
 
+		// Check if 2FA is enabled
+		if (user.mfa && user.mfaSecret) {
+			// If no MFA code provided, require it
+			if (!mfaCode) {
+				// Return a temporary token that can only be used for MFA verification
+				const tempToken = jwt.sign(
+					{ userId: user._id.toString(), email: user.email, mfaPending: true },
+					process.env.JWT_SECRET,
+					{ expiresIn: "5m" }, // Short expiry for MFA verification
+				);
+
+				return res.status(200).json({
+					message: "2FA verification required",
+					mfaRequired: true,
+					tempToken,
+				});
+			}
+
+			// Verify MFA code
+			const speakeasy = await import("speakeasy");
+			const isValidMfa = speakeasy.totp.verify({
+				secret: user.mfaSecret,
+				encoding: "base32",
+				token: mfaCode,
+				window: 1,
+			});
+
+			if (!isValidMfa) {
+				// Also check backup codes
+				const crypto = await import("crypto");
+				const hashedCode = crypto.createHash("sha256").update(mfaCode.toUpperCase()).digest("hex");
+				const backupIndex = user.mfaBackupCodes?.findIndex((c: string) => c === hashedCode);
+
+				if (backupIndex === undefined || backupIndex < 0) {
+					return res.status(400).json({ message: "Invalid 2FA code" });
+				}
+
+				// Remove used backup code
+				user.mfaBackupCodes?.splice(backupIndex, 1);
+				await user.save();
+			}
+		}
+
 		const token = jwt.sign(
 			{ userId: user._id.toString(), email: user.email, isAdmin: user.isAdmin },
 			process.env.JWT_SECRET,
@@ -202,7 +245,7 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 		res.status(200).json({
 			message: "Login successful",
 			token,
-			user: { ...userResponse, id: userResponse._id.toString(), password: undefined },
+			user: { ...userResponse, id: userResponse._id.toString(), password: undefined, mfaSecret: undefined },
 		});
 	} catch (error) {
 		console.error("Login error:", error);

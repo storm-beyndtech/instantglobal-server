@@ -53,6 +53,9 @@ export interface IUser extends mongoose.Document {
 	accountStatus: AccountStatus;
 	isAdmin: boolean;
 	mfa: boolean;
+	mfaSecret?: string;
+	mfaBackupCodes?: string[];
+	mfaEnabledAt?: Date;
 	idVerified: boolean;
 	isEmailVerified: boolean;
 	createdAt: Date;
@@ -207,6 +210,20 @@ export const userSchema = new mongoose.Schema(
 		mfa: {
 			type: Boolean,
 			default: false,
+		},
+		mfaSecret: {
+			type: String,
+			default: null,
+			select: false, // Don't include in queries by default for security
+		},
+		mfaBackupCodes: {
+			type: [String],
+			default: [],
+			select: false,
+		},
+		mfaEnabledAt: {
+			type: Date,
+			default: null,
 		},
 		idVerified: {
 			type: Boolean,

@@ -14,6 +14,52 @@ const parseAmount = (val: any) => {
 	return n;
 };
 
+// Helper to calculate user's available balance
+const getAvailableBalance = (user: any): number => {
+	return (user.deposit || 0) + (user.interest || 0) + (user.bonus || 0) - (user.withdraw || 0);
+};
+
+// Helper to validate and deduct balance
+const validateAndDeductBalance = async (user: any, amount: number): Promise<{ success: boolean; message?: string }> => {
+	const availableBalance = getAvailableBalance(user);
+	if (availableBalance < amount) {
+		return {
+			success: false,
+			message: `Insufficient balance. Available: $${availableBalance.toFixed(2)}, Required: $${amount.toFixed(2)}`
+		};
+	}
+
+	// Deduct from deposit first, then interest, then bonus
+	let remaining = amount;
+
+	if (user.deposit >= remaining) {
+		user.deposit -= remaining;
+		remaining = 0;
+	} else {
+		remaining -= user.deposit;
+		user.deposit = 0;
+	}
+
+	if (remaining > 0 && user.interest >= remaining) {
+		user.interest -= remaining;
+		remaining = 0;
+	} else if (remaining > 0) {
+		remaining -= user.interest;
+		user.interest = 0;
+	}
+
+	if (remaining > 0 && user.bonus >= remaining) {
+		user.bonus -= remaining;
+		remaining = 0;
+	} else if (remaining > 0) {
+		remaining -= user.bonus;
+		user.bonus = 0;
+	}
+
+	await user.save();
+	return { success: true };
+};
+
 // Fetch account and wallet details for a user
 router.get("/account/:userId", requireAuth, async (req: AuthRequest, res) => {
 	try {
@@ -105,20 +151,36 @@ router.post("/transfers/external", requireAuth, async (req: AuthRequest, res) =>
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ message: "User not found" });
 
+		// SECURITY: Users can only transfer from their own account unless admin
+		if (!req.user?.isAdmin && req.user?.userId !== userId) {
+			return res.status(403).json({ message: "Access denied: You can only transfer from your own account" });
+		}
+
 		const feePct = Number(process.env.EXTERNAL_TRANSFER_FEE_PERCENT || 2.5);
 		const fee = percent(amt, feePct);
+		const totalDebit = amt + fee;
+
+		// BALANCE VALIDATION: Check if user has sufficient funds
+		const balanceCheck = await validateAndDeductBalance(user, totalDebit);
+		if (!balanceCheck.success) {
+			return res.status(400).json({ message: balanceCheck.message });
+		}
 
 		const txn = await Transaction.create({
 			type: "external_transfer",
 			user: { id: user._id, email: user.email, name: `${user.firstName} ${user.lastName}` },
 			status: "pending",
-			amount: amt + fee, // debit includes fee
+			amount: totalDebit * -1, // negative for debit
 			currency,
 			description: memo || `External transfer to ${beneficiary}`,
 			metadata: { beneficiary, bankDetails, feePct, fee },
 		});
 
-		res.json({ message: "External transfer created (pending)", transaction: txn });
+		res.json({
+			message: "External transfer created (pending)",
+			transaction: txn,
+			newBalance: getAvailableBalance(user)
+		});
 	} catch (err: any) {
 		res.status(400).json({ message: err.message || "External transfer failed" });
 	}
@@ -158,6 +220,17 @@ router.post("/crypto/withdraw", requireAuth, async (req: AuthRequest, res) => {
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ message: "User not found" });
 
+		// SECURITY: Users can only withdraw from their own account unless admin
+		if (!req.user?.isAdmin && req.user?.userId !== userId) {
+			return res.status(403).json({ message: "Access denied: You can only withdraw from your own account" });
+		}
+
+		// BALANCE VALIDATION: Check if user has sufficient funds
+		const balanceCheck = await validateAndDeductBalance(user, amt);
+		if (!balanceCheck.success) {
+			return res.status(400).json({ message: balanceCheck.message });
+		}
+
 		const kind = "crypto_withdrawal";
 
 		const txn = await Transaction.create({
@@ -170,7 +243,11 @@ router.post("/crypto/withdraw", requireAuth, async (req: AuthRequest, res) => {
 			metadata: { address, chain },
 		});
 
-		res.json({ message: "Crypto withdrawal created (pending)", transaction: txn });
+		res.json({
+			message: "Crypto withdrawal created (pending)",
+			transaction: txn,
+			newBalance: getAvailableBalance(user)
+		});
 	} catch (err: any) {
 		res.status(400).json({ message: err.message || "Crypto withdrawal failed" });
 	}
@@ -181,20 +258,38 @@ router.post("/giftcards/purchase", requireAuth, async (req: AuthRequest, res) =>
 	try {
 		const { userId, amount, currency = "USD", productId, fee } = req.body;
 		const amt = parseAmount(amount);
+		const feeAmount = Number(fee) || 0;
+		const totalDebit = amt + feeAmount;
+
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ message: "User not found" });
+
+		// SECURITY: Users can only purchase from their own account unless admin
+		if (!req.user?.isAdmin && req.user?.userId !== userId) {
+			return res.status(403).json({ message: "Access denied: You can only purchase from your own account" });
+		}
+
+		// BALANCE VALIDATION: Check if user has sufficient funds
+		const balanceCheck = await validateAndDeductBalance(user, totalDebit);
+		if (!balanceCheck.success) {
+			return res.status(400).json({ message: balanceCheck.message });
+		}
 
 		const txn = await Transaction.create({
 			type: "gift_card_purchase",
 			user: { id: user._id, email: user.email, name: `${user.firstName} ${user.lastName}` },
-			status: "pending",
-			amount: amt + (Number(fee) || 0) * -1,
+			status: "completed",
+			amount: totalDebit * -1,
 			currency,
 			description: `Gift card ${productId}`,
-			metadata: { productId, fee },
+			metadata: { productId, fee: feeAmount },
 		});
 
-		res.json({ message: "Gift card purchase recorded", transaction: txn });
+		res.json({
+			message: "Gift card purchase completed",
+			transaction: txn,
+			newBalance: getAvailableBalance(user)
+		});
 	} catch (err: any) {
 		res.status(400).json({ message: err.message || "Gift card purchase failed" });
 	}
@@ -203,22 +298,40 @@ router.post("/giftcards/purchase", requireAuth, async (req: AuthRequest, res) =>
 // Virtual card purchase
 router.post("/virtual-cards/purchase", requireAuth, async (req: AuthRequest, res) => {
 	try {
-		const { userId, amount, currency = "USD", productId, fee } = req.body;
+		const { userId, amount, currency = "USD", cardDetails, fee } = req.body;
 		const amt = parseAmount(amount);
+		const feeAmount = Number(fee) || Number(process.env.VIRTUAL_CARD_FEE) || 49;
+		const totalDebit = amt + feeAmount;
+
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ message: "User not found" });
+
+		// SECURITY: Users can only purchase from their own account unless admin
+		if (!req.user?.isAdmin && req.user?.userId !== userId) {
+			return res.status(403).json({ message: "Access denied: You can only purchase from your own account" });
+		}
+
+		// BALANCE VALIDATION: Check if user has sufficient funds
+		const balanceCheck = await validateAndDeductBalance(user, totalDebit);
+		if (!balanceCheck.success) {
+			return res.status(400).json({ message: balanceCheck.message });
+		}
 
 		const txn = await Transaction.create({
 			type: "virtual_card_purchase",
 			user: { id: user._id, email: user.email, name: `${user.firstName} ${user.lastName}` },
-			status: "pending",
-			amount: amt + (Number(fee) || 0) * -1,
+			status: "completed",
+			amount: totalDebit * -1,
 			currency,
-			description: `Virtual card ${productId}`,
-			metadata: { productId, fee },
+			description: `Virtual card issued`,
+			metadata: { cardDetails, fee: feeAmount, fundingAmount: amt },
 		});
 
-		res.json({ message: "Virtual card purchase recorded", transaction: txn });
+		res.json({
+			message: "Virtual card issued successfully",
+			transaction: txn,
+			newBalance: getAvailableBalance(user)
+		});
 	} catch (err: any) {
 		res.status(400).json({ message: err.message || "Virtual card purchase failed" });
 	}
@@ -227,22 +340,47 @@ router.post("/virtual-cards/purchase", requireAuth, async (req: AuthRequest, res
 // Flight booking
 router.post("/flights/book", requireAuth, async (req: AuthRequest, res) => {
 	try {
-		const { userId, amount, currency = "USD", route, vendor, fee } = req.body;
+		const { userId, amount, currency = "USD", route, vendor, flightDetails, passengers } = req.body;
 		const amt = parseAmount(amount);
+		const feePct = Number(process.env.FLIGHT_BOOKING_FEE) || 1.8;
+		const fee = percent(amt, feePct);
+		const totalDebit = amt + fee;
+
 		const user = await User.findById(userId);
 		if (!user) return res.status(404).json({ message: "User not found" });
+
+		// SECURITY: Users can only book from their own account unless admin
+		if (!req.user?.isAdmin && req.user?.userId !== userId) {
+			return res.status(403).json({ message: "Access denied: You can only book from your own account" });
+		}
+
+		// BALANCE VALIDATION: Check if user has sufficient funds
+		const balanceCheck = await validateAndDeductBalance(user, totalDebit);
+		if (!balanceCheck.success) {
+			return res.status(400).json({ message: balanceCheck.message });
+		}
 
 		const txn = await Transaction.create({
 			type: "flight_booking",
 			user: { id: user._id, email: user.email, name: `${user.firstName} ${user.lastName}` },
-			status: "pending",
-			amount: amt * -1,
+			status: "completed",
+			amount: totalDebit * -1,
 			currency,
 			description: route || "Flight booking",
-			metadata: { vendor, fee },
+			metadata: { vendor, fee, feePct, flightDetails, passengers, basePrice: amt },
 		});
 
-		res.json({ message: "Flight booking captured", transaction: txn });
+		res.json({
+			message: "Flight booked successfully",
+			transaction: txn,
+			newBalance: getAvailableBalance(user),
+			bookingDetails: {
+				confirmationNumber: `IG${Date.now().toString(36).toUpperCase()}`,
+				route,
+				totalPaid: totalDebit,
+				fee
+			}
+		});
 	} catch (err: any) {
 		res.status(400).json({ message: err.message || "Flight booking failed" });
 	}

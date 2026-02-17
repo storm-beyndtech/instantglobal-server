@@ -51,7 +51,7 @@ export class JWTUtils {
   static verifyAccessToken(token: string): IJWTPayload {
     try {
       return jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: '99infinite',
+        issuer: 'instantglobal',
         audience: 'client'
       }) as IJWTPayload;
     } catch (error) {
@@ -65,7 +65,7 @@ export class JWTUtils {
   static verifyRefreshToken(token: string): any {
     try {
       return jwt.verify(token, this.REFRESH_TOKEN_SECRET, {
-        issuer: '99infinite',
+        issuer: 'instantglobal',
         audience: 'client'
       });
     } catch (error) {
@@ -130,7 +130,7 @@ export class JWTUtils {
 
     return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: '24h',
-      issuer: '99infinite',
+      issuer: 'instantglobal',
       audience: 'email_verification'
     });
   }
@@ -148,7 +148,7 @@ export class JWTUtils {
 
     return jwt.sign(payload, this.ACCESS_TOKEN_SECRET, {
       expiresIn: '1h',
-      issuer: '99infinite',
+      issuer: 'instantglobal',
       audience: 'password_reset'
     });
   }
@@ -159,7 +159,7 @@ export class JWTUtils {
   static verifyEmailVerificationToken(token: string): any {
     try {
       return jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: '99infinite',
+        issuer: 'instantglobal',
         audience: 'email_verification'
       });
     } catch (error) {
@@ -173,7 +173,7 @@ export class JWTUtils {
   static verifyPasswordResetToken(token: string): any {
     try {
       return jwt.verify(token, this.ACCESS_TOKEN_SECRET, {
-        issuer: '99infinite',
+        issuer: 'instantglobal',
         audience: 'password_reset'
       });
     } catch (error) {
