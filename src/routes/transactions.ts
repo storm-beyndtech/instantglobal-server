@@ -1,10 +1,11 @@
 import express from "express";
 import { Transaction } from "../models/transaction";
+import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
 
 // getting all deposits
-router.get("/deposits", async (req, res) => {
+router.get("/deposits", requireAuth, requireAdmin, async (req, res) => {
 	try {
 		const deposits = await Transaction.find({ type: "deposit" });
 		res.send(deposits);
@@ -14,7 +15,7 @@ router.get("/deposits", async (req, res) => {
 });
 
 // getting all withdrawals
-router.get("/withdrawals", async (req, res) => {
+router.get("/withdrawals", requireAuth, requireAdmin, async (req, res) => {
 	try {
 		const withdrawals = await Transaction.find({ type: "withdrawal" });
 		res.send(withdrawals);
@@ -24,7 +25,7 @@ router.get("/withdrawals", async (req, res) => {
 });
 
 // getting all contracts
-router.get("/contracts", async (req, res) => {
+router.get("/contracts", requireAuth, requireAdmin, async (req, res) => {
 	try {
 		// Support both old and new transaction types for backward compatibility
 		const contracts = await Transaction.find({ 
@@ -37,13 +38,19 @@ router.get("/contracts", async (req, res) => {
 });
 
 // getting single transaction
-router.get("/:id", async (req, res) => {
+router.get("/:id", requireAuth, async (req: AuthRequest, res) => {
 	const { id } = req.params;
 
 	try {
 		const transaction = await Transaction.findById(id);
 
 		if (!transaction) return res.status(400).send({ message: "Transaction not found..." });
+		if (!req.user?.isAdmin) {
+			const txnEmail = String((transaction as any)?.user?.email || "").toLowerCase();
+			if (!txnEmail || txnEmail !== String(req.user?.email || "").toLowerCase()) {
+				return res.status(403).json({ message: "Access denied" });
+			}
+		}
 		res.send(transaction);
 	} catch (e) {
 		res.status(500).json({ message: "Failed to fetch transactions" });
@@ -51,9 +58,10 @@ router.get("/:id", async (req, res) => {
 });
 
 // getting all transactions
-router.get("/", async (req, res) => {
+router.get("/", requireAuth, async (req: AuthRequest, res) => {
 	try {
-		let transactions = await Transaction.find();
+		const filter = req.user?.isAdmin ? {} : { "user.email": req.user?.email };
+		let transactions = await Transaction.find(filter);
 		if (!transactions || transactions.length === 0) {
 			return res.status(200).send([]);
 		}
@@ -68,8 +76,11 @@ router.get("/", async (req, res) => {
 });
 
 // get all transactions by user
-router.get("/user/:email", async (req, res) => {
+router.get("/user/:email", requireAuth, async (req: AuthRequest, res) => {
 	const { email } = req.params;
+	if (!req.user?.isAdmin && String(req.user?.email || "").toLowerCase() !== String(email).toLowerCase()) {
+		return res.status(403).json({ message: "Access denied" });
+	}
 
 	try {
 		let transactions = await Transaction.find({ "user.email": email });
@@ -87,7 +98,7 @@ router.get("/user/:email", async (req, res) => {
 });
 
 // Update a single transaction by ID
-router.put("/:id", async (req, res) => {
+router.put("/:id", requireAuth, requireAdmin, async (req, res) => {
 	const { id } = req.params;
 	const { amount, convertedAmount } = req.body;
 
@@ -118,7 +129,7 @@ router.put("/:id", async (req, res) => {
 });
 
 // Delete a transaction
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireAuth, requireAdmin, async (req, res) => {
 	const { id } = req.params;
 
 	try {

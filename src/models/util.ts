@@ -7,8 +7,19 @@ interface ICoin {
   price: number;
 }
 
+interface IBankDetails {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+  routingNumber: string;
+  swift: string;
+  iban: string;
+  bankAddress: string;
+}
+
 export interface IUtil extends mongoose.Document {
   coins: ICoin[];
+  bankDetails: IBankDetails;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,6 +34,15 @@ const utilSchema = new mongoose.Schema({
       price: { type: Number, required: true, min: 0 },
     },
   ],
+  bankDetails: {
+    bankName: { type: String, default: "" },
+    accountName: { type: String, default: "" },
+    accountNumber: { type: String, default: "" },
+    routingNumber: { type: String, default: "" },
+    swift: { type: String, default: "" },
+    iban: { type: String, default: "" },
+    bankAddress: { type: String, default: "" },
+  },
 }, {
   timestamps: true
 });

@@ -6,7 +6,7 @@ export function emailTemplate(bodyContent: string): string {
           <table role="presentation" width="100%" max-width="600px" bgcolor="#ffffff" style="border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
             <tr>
               <td align="center" style="padding: 20px; background: #13160F;">
-                <img src="https://res.cloudinary.com/ddb1vjioq/image/upload/v1762425288/logo-2_qllwgb.png" width="60" alt="Company Logo" style="display: block;">
+                <img src="https://res.cloudinary.com/ddb1vjioq/image/upload/v1771336511/logo_ghdulc.png" width="60" alt="Company Logo" style="display: block;">
               </td>
             </tr>
 
@@ -23,4 +23,3 @@ export function emailTemplate(bodyContent: string): string {
           </table>
   `;
 }
-

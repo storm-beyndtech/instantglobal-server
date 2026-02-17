@@ -1,6 +1,7 @@
 import express from "express";
 import { Util } from "../models/util";
 import { multiMails } from "../utils/mailer";
+import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -8,14 +9,33 @@ const router = express.Router();
 router.get("/", async (req, res) => {
 	try {
 		const utils = await Util.find();
-		res.send(utils[0]);
+		res.send(utils[0] || null);
 	} catch (x) {
 		return res.status(500).send("Something Went Wrong...");
 	}
 });
 
+// create utility data (admin)
+router.post("/", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+	try {
+		const existing = await Util.findOne();
+		if (existing) {
+			return res.status(400).json({ message: "Utility data already exists. Use update endpoint." });
+		}
+
+		const created = await Util.create({
+			coins: Array.isArray(req.body?.coins) ? req.body.coins : [],
+			bankDetails: req.body?.bankDetails || {},
+		});
+		return res.status(201).json(created);
+	} catch (error) {
+		console.error("Create util error:", error);
+		return res.status(500).json({ message: "Failed to create utility data" });
+	}
+});
+
 // updating a util
-router.put("/update/:id", async (req, res) => {
+router.put("/update/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
 	const { id } = req.params;
 
 	try {
@@ -44,7 +64,7 @@ router.put("/update/:id", async (req, res) => {
 });
 
 // deleting a util
-router.delete("/:id", async (req, res) => {
+router.delete("/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
 	const { id } = req.params;
 
 	try {
@@ -63,7 +83,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // POST route to send mail
-router.post("/send-mail", async (req, res) => {
+router.post("/send-mail", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
 	const { emails, subject, message } = req.body;
 
 	if (!emails || !Array.isArray(emails) || emails.length === 0) {
