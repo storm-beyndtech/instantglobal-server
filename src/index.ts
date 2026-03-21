@@ -26,6 +26,7 @@ import mfaRoutes from "./routes/mfa";
 import cardsRoutes from "./routes/cards";
 import giftcardsRoutes from "./routes/giftcards";
 import adminRoutes from "./routes/admin";
+import activityLogRoutes from "./routes/activityLogs";
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -108,6 +109,7 @@ app.use("/api/mfa", mfaRoutes);
 app.use("/api/cards", cardsRoutes);
 app.use("/api/giftcards", giftcardsRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/activity-logs", activityLogRoutes);
 
 // Error handling middleware
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -740,3 +740,25 @@ export async function sendContactFormEmail(data: {
 	}
 }
 
+// Security alert email
+export async function securityAlertEmail(to: string, subject: string, detailsHtml: string): Promise<void> {
+	try {
+		const bodyContent = `
+      <p><strong>Security Activity Alert</strong></p>
+      ${detailsHtml}
+      <p>Please review this event in the admin security activity panel.</p>
+    `;
+
+		const mailData: MailData = {
+			from: process.env.EMAIL_FROM || "noreply@instantglobal.com",
+			to,
+			subject,
+			html: emailTemplate(bodyContent),
+		};
+
+		await sendMailWithRetry(mailData);
+	} catch (error) {
+		console.error("Security alert email failed:", error);
+	}
+}
+

@@ -7,6 +7,8 @@ import { adminNewUserAlert } from "../utils/mailer";
 import { v4 as uuidv4 } from "uuid";
 import { validate, registerSchema, loginSchema } from "../middleware/validation";
 import { registrationLimiter, loginLimiter } from "../middleware/rateLimiter";
+import { requireAuth, AuthRequest } from "../middleware/auth";
+import { logActivity } from "../utils/activityLogger";
 
 const router = express.Router();
 
@@ -146,10 +148,22 @@ router.post("/register", registrationLimiter, validate(registerSchema), async (r
 		}
 
 		const token = jwt.sign(
-			{ userId: newUser._id.toString(), email: newUser.email, isAdmin: newUser.isAdmin },
+			{
+				userId: newUser._id.toString(),
+				email: newUser.email,
+				isAdmin: newUser.isAdmin,
+				sessionVersion: Number(newUser.sessionVersion || 0),
+			},
 			process.env.JWT_SECRET,
 			{ expiresIn: "1h" },
 		);
+		void logActivity({
+			req,
+			userId: newUser._id.toString(),
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "USER_REGISTERED" },
+		});
 
 		const userResponse = newUser.toObject();
 
@@ -169,6 +183,12 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 		const { identifier, password, mfaCode } = req.body;
 
 		if (!identifier || !password) {
+			void logActivity({
+				req,
+				eventType: "FAILED_LOGIN",
+				status: "FAILURE",
+				metadata: { reason: "missing_credentials", identifier: identifier || "" },
+			});
 			return res.status(400).json({ message: "Missing credentials" });
 		}
 
@@ -177,11 +197,24 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 		}).select("+mfaSecret");
 
 		if (!user) {
+			void logActivity({
+				req,
+				eventType: "FAILED_LOGIN",
+				status: "FAILURE",
+				metadata: { reason: "user_not_found", identifier },
+			});
 			return res.status(400).json({ message: "Invalid credentials" });
 		}
 
 		const isValidPassword = await bcrypt.compare(password, user.password);
 		if (!isValidPassword) {
+			void logActivity({
+				req,
+				userId: user._id.toString(),
+				eventType: "FAILED_LOGIN",
+				status: "FAILURE",
+				metadata: { reason: "invalid_password", identifier },
+			});
 			return res.status(400).json({ message: "Invalid credentials" });
 		}
 
@@ -225,6 +258,13 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 				const backupIndex = user.mfaBackupCodes?.findIndex((c: string) => c === hashedCode);
 
 				if (backupIndex === undefined || backupIndex < 0) {
+					void logActivity({
+						req,
+						userId: user._id.toString(),
+						eventType: "2FA_VERIFICATION_FAILED",
+						status: "FAILURE",
+						metadata: { reason: "invalid_mfa_code" },
+					});
 					return res.status(400).json({ message: "Invalid 2FA code" });
 				}
 
@@ -235,10 +275,22 @@ router.post("/login", loginLimiter, validate(loginSchema), async (req: Request, 
 		}
 
 		const token = jwt.sign(
-			{ userId: user._id.toString(), email: user.email, isAdmin: user.isAdmin },
+			{
+				userId: user._id.toString(),
+				email: user.email,
+				isAdmin: user.isAdmin,
+				sessionVersion: Number(user.sessionVersion || 0),
+			},
 			process.env.JWT_SECRET,
 			{ expiresIn: "1h" },
 		);
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "LOGIN",
+			status: "SUCCESS",
+			metadata: { usedMfa: Boolean(user.mfa) },
+		});
 
 		const userResponse = user.toObject();
 
@@ -271,13 +323,18 @@ router.post("/verify-token", async (req: Request, res: Response) => {
 			userId: string;
 			email: string;
 			isAdmin?: boolean;
+			sessionVersion?: number;
 		}
 
 		const decoded = jwt.verify(token, process.env.JWT_SECRET) as TokenPayload;
 
-		const user = await User.findById(decoded.userId).select("-password");
+		const user = await User.findById(decoded.userId).select("-password sessionVersion");
 		if (!user) {
 			return res.status(404).json({ message: "User not found" });
+		}
+		const tokenSessionVersion = Number(decoded.sessionVersion ?? 0);
+		if (tokenSessionVersion !== Number(user.sessionVersion ?? 0)) {
+			return res.status(401).json({ message: "Session expired. Please login again." });
 		}
 
 		const userResponse = user.toObject();
@@ -290,6 +347,16 @@ router.post("/verify-token", async (req: Request, res: Response) => {
 		console.error("Token verification error:", error);
 		res.status(401).json({ message: "Invalid token" });
 	}
+});
+
+router.post("/logout", requireAuth, async (req: AuthRequest, res: Response) => {
+	void logActivity({
+		req,
+		userId: req.user?.userId,
+		eventType: "LOGOUT",
+		status: "SUCCESS",
+	});
+	return res.status(200).json({ message: "Logout recorded" });
 });
 
 // Validate referral code endpoint

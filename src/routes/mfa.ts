@@ -4,6 +4,7 @@ import QRCode from "qrcode";
 import crypto from "crypto";
 import { User } from "../models/user";
 import { requireAuth, AuthRequest } from "../middleware/auth";
+import { logActivity } from "../utils/activityLogger";
 
 const router = express.Router();
 
@@ -109,6 +110,13 @@ router.post("/enable", requireAuth, async (req: AuthRequest, res: Response) => {
 		});
 
 		if (!isValid) {
+			void logActivity({
+				req,
+				userId: req.user?.userId,
+				eventType: "2FA_VERIFICATION_FAILED",
+				status: "FAILURE",
+				metadata: { flow: "enable" },
+			});
 			return res.status(400).json({ message: "Invalid verification code" });
 		}
 
@@ -121,6 +129,13 @@ router.post("/enable", requireAuth, async (req: AuthRequest, res: Response) => {
 		user.mfaBackupCodes = hashedCodes;
 		user.mfaEnabledAt = new Date();
 		await user.save();
+		void logActivity({
+			req,
+			userId: req.user?.userId,
+			eventType: "2FA_ENABLED",
+			status: "SUCCESS",
+			metadata: { backupCodeCount: backupCodes.length },
+		});
 
 		res.json({
 			message: "2FA has been enabled successfully",
@@ -160,6 +175,13 @@ router.post("/verify", requireAuth, async (req: AuthRequest, res: Response) => {
 		});
 
 		if (isValidTotp) {
+			void logActivity({
+				req,
+				userId: req.user?.userId,
+				eventType: "2FA_VERIFIED",
+				status: "SUCCESS",
+				metadata: { method: "totp" },
+			});
 			return res.json({ valid: true, method: "totp" });
 		}
 
@@ -171,6 +193,13 @@ router.post("/verify", requireAuth, async (req: AuthRequest, res: Response) => {
 			// Remove used backup code
 			user.mfaBackupCodes?.splice(backupIndex, 1);
 			await user.save();
+			void logActivity({
+				req,
+				userId: req.user?.userId,
+				eventType: "2FA_VERIFIED",
+				status: "SUCCESS",
+				metadata: { method: "backup" },
+			});
 
 			return res.json({
 				valid: true,
@@ -180,6 +209,13 @@ router.post("/verify", requireAuth, async (req: AuthRequest, res: Response) => {
 			});
 		}
 
+		void logActivity({
+			req,
+			userId: req.user?.userId,
+			eventType: "2FA_VERIFICATION_FAILED",
+			status: "FAILURE",
+			metadata: { flow: "verify" },
+		});
 		res.status(400).json({ valid: false, message: "Invalid code" });
 	} catch (error: any) {
 		console.error("Error verifying 2FA:", error);
@@ -227,6 +263,13 @@ router.post("/disable", requireAuth, async (req: AuthRequest, res: Response) => 
 		const isBackupCode = user.mfaBackupCodes?.includes(hashedInput);
 
 		if (!isValidTotp && !isBackupCode) {
+			void logActivity({
+				req,
+				userId: req.user?.userId,
+				eventType: "2FA_VERIFICATION_FAILED",
+				status: "FAILURE",
+				metadata: { flow: "disable" },
+			});
 			return res.status(400).json({ message: "Invalid verification code" });
 		}
 
@@ -236,6 +279,12 @@ router.post("/disable", requireAuth, async (req: AuthRequest, res: Response) => 
 		user.mfaBackupCodes = [];
 		user.mfaEnabledAt = undefined;
 		await user.save();
+		void logActivity({
+			req,
+			userId: req.user?.userId,
+			eventType: "2FA_DISABLED",
+			status: "SUCCESS",
+		});
 
 		res.json({ message: "2FA has been disabled successfully" });
 	} catch (error: any) {
@@ -271,6 +320,13 @@ router.post("/backup-codes/regenerate", requireAuth, async (req: AuthRequest, re
 		});
 
 		if (!isValid) {
+			void logActivity({
+				req,
+				userId: req.user?.userId,
+				eventType: "2FA_VERIFICATION_FAILED",
+				status: "FAILURE",
+				metadata: { flow: "backup_codes_regenerate" },
+			});
 			return res.status(400).json({ message: "Invalid verification code" });
 		}
 
@@ -280,6 +336,13 @@ router.post("/backup-codes/regenerate", requireAuth, async (req: AuthRequest, re
 
 		user.mfaBackupCodes = hashedCodes;
 		await user.save();
+		void logActivity({
+			req,
+			userId: req.user?.userId,
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "MFA_BACKUP_CODES_REGENERATED", count: backupCodes.length },
+		});
 
 		res.json({
 			message: "Backup codes regenerated successfully",

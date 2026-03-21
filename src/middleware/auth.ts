@@ -8,6 +8,7 @@ export interface JWTPayload {
 	isAdmin?: boolean;
 	role?: string;
 	accountStatus?: string;
+	sessionVersion?: number;
 	iat?: number;
 	exp?: number;
 }
@@ -32,9 +33,14 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 		}
 
 		const payload = jwt.verify(token, process.env.JWT_SECRET) as JWTPayload;
-		const dbUser = await User.findById(payload.userId).select("_id email isAdmin role accountStatus");
+		const dbUser = await User.findById(payload.userId).select("_id email isAdmin role accountStatus sessionVersion");
 		if (!dbUser) {
 			return res.status(401).json({ message: "Invalid token user" });
+		}
+		const tokenSessionVersion = Number(payload.sessionVersion ?? 0);
+		const userSessionVersion = Number(dbUser.sessionVersion ?? 0);
+		if (tokenSessionVersion !== userSessionVersion) {
+			return res.status(401).json({ message: "Session expired. Please login again." });
 		}
 
 		req.user = {

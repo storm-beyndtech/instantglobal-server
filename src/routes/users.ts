@@ -12,6 +12,7 @@ import { requireAdmin, requireAuth, requireSelfOrAdmin, AuthRequest } from "../m
 import { validate, passwordResetRequestSchema, passwordResetVerifySchema, updateProfileSchema, kycSubmissionSchema, adminUpdateUserSchema } from "../middleware/validation";
 import { passwordResetLimiter } from "../middleware/rateLimiter";
 import { logAudit } from "../utils/auditLogger";
+import { logActivity } from "../utils/activityLogger";
 
 const router = express.Router();
 
@@ -132,6 +133,13 @@ router.put("/profile/:id", requireAuth, requireSelfOrAdmin, validate(updateProfi
 		if (country) user.country = country;
 
 		await user.save();
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "PROFILE_UPDATED" },
+		});
 
 		// Return updated user without password
 		const updatedUser = await User.findById(req.params.id).select("-password");
@@ -193,6 +201,13 @@ router.put("/update-profile", requireAuth, upload.single("profileImage"), async 
 		}
 
 		await user.save();
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "PROFILE_UPDATED_WITH_UPLOAD" },
+		});
 
 		// Return updated user without password
 		const updatedUser = await User.findById(userId).select("-password");
@@ -326,15 +341,27 @@ router.get("/admin/audit-logs", requireAuth, requireAdmin, async (req: AuthReque
 		const page = Math.max(1, parseInt(String(req.query.page || "1"), 10));
 		const limit = Math.min(200, Math.max(1, parseInt(String(req.query.limit || "50"), 10)));
 		const action = String(req.query.action || "").trim();
+		const resource = String(req.query.resource || "").trim();
+		const search = String(req.query.search || "").trim();
 		const actorId = String(req.query.actorId || "").trim();
 		const targetId = String(req.query.targetId || "").trim();
 		const success = String(req.query.success || "").trim();
 
 		const filter: Record<string, any> = {};
-		if (action) filter.action = action;
+		if (action) filter.action = new RegExp(action, "i");
+		if (resource) filter["target.entityType"] = new RegExp(resource, "i");
 		if (actorId) filter["actor.userId"] = actorId;
 		if (targetId) filter["target.entityId"] = targetId;
 		if (success === "true" || success === "false") filter["outcome.success"] = success === "true";
+		if (search) {
+			const searchRegex = new RegExp(search, "i");
+			filter.$or = [
+				{ "actor.email": searchRegex },
+				{ "target.email": searchRegex },
+				{ "target.entityId": searchRegex },
+				{ action: searchRegex },
+			];
+		}
 
 		const skip = (page - 1) * limit;
 		const [logs, total] = await Promise.all([
@@ -352,6 +379,44 @@ router.get("/admin/audit-logs", requireAuth, requireAdmin, async (req: AuthReque
 	} catch (error) {
 		console.error("Error fetching audit logs:", error);
 		return res.status(500).json({ message: "Failed to fetch audit logs" });
+	}
+});
+
+// Admin audit stats endpoint
+router.get("/admin/audit-stats", requireAuth, requireAdmin, async (req: AuthRequest, res: Response) => {
+	try {
+		const now = new Date();
+		const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		const startOfWeek = new Date(now);
+		startOfWeek.setDate(now.getDate() - 7);
+
+		const [total, today, thisWeek, uniqueAdminsResult] = await Promise.all([
+			AuditLog.countDocuments({}),
+			AuditLog.countDocuments({ createdAt: { $gte: startOfToday } }),
+			AuditLog.countDocuments({ createdAt: { $gte: startOfWeek } }),
+			AuditLog.aggregate([
+				{
+					$project: {
+						actorKey: {
+							$ifNull: [{ $toString: "$actor.userId" }, "$actor.email"],
+						},
+					},
+				},
+				{ $match: { actorKey: { $ne: null } } },
+				{ $group: { _id: "$actorKey" } },
+				{ $count: "count" },
+			]),
+		]);
+
+		return res.json({
+			total,
+			today,
+			thisWeek,
+			uniqueAdmins: uniqueAdminsResult[0]?.count || 0,
+		});
+	} catch (error) {
+		console.error("Error fetching audit stats:", error);
+		return res.status(500).json({ message: "Failed to fetch audit stats" });
 	}
 });
 
@@ -374,6 +439,13 @@ router.post("/password-reset/request", passwordResetLimiter, validate(passwordRe
 
 		// Send reset code email
 		await passwordResetCode(email, otp.code);
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "PASSWORD_RESET_REQUESTED",
+			status: "SUCCESS",
+			metadata: { email },
+		});
 
 		res.json({ message: "Password reset code sent to your email" });
 	} catch (error) {
@@ -390,6 +462,12 @@ router.post("/password-reset/verify", passwordResetLimiter, validate(passwordRes
 		// Verify OTP
 		const otp = await Otp.findOne({ email, code });
 		if (!otp) {
+			void logActivity({
+				req,
+				eventType: "PASSWORD_RESET_COMPLETED",
+				status: "FAILURE",
+				metadata: { reason: "invalid_or_expired_code", email },
+			});
 			return res.status(400).json({ message: "Invalid or expired reset code" });
 		}
 
@@ -402,6 +480,7 @@ router.post("/password-reset/verify", passwordResetLimiter, validate(passwordRes
 		// Hash new password
 		const saltRounds = parseInt(process.env.BCRYPT_SALT_ROUNDS || "12");
 		user.password = await bcrypt.hash(newPassword, saltRounds);
+		user.sessionVersion = Number(user.sessionVersion || 0) + 1;
 		await user.save();
 
 		// Delete used OTP
@@ -409,6 +488,13 @@ router.post("/password-reset/verify", passwordResetLimiter, validate(passwordRes
 
 		// Send confirmation email
 		await passwordResetConfirmation(email);
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "PASSWORD_RESET_COMPLETED",
+			status: "SUCCESS",
+			metadata: { email, sessionVersion: user.sessionVersion },
+		});
 
 		res.json({ message: "Password reset successful" });
 	} catch (error) {
@@ -476,6 +562,13 @@ router.put("/:id/status", requireAuth, requireAdmin, async (req: AuthRequest, re
 				success: false,
 				message: `Attempted forbidden fields: ${forbidden.join(", ")}`,
 			});
+			void logActivity({
+				req,
+				userId: req.params.id,
+				eventType: "ROLE_CHANGE_BLOCKED",
+				status: "BLOCKED",
+				metadata: { forbiddenFields: forbidden },
+			});
 			return res.status(403).json({ message: "Forbidden fields in request" });
 		}
 
@@ -500,6 +593,13 @@ router.put("/:id/status", requireAuth, requireAdmin, async (req: AuthRequest, re
 		}
 
 		await user.save();
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "ADMIN_USER_STATUS_UPDATE" },
+		});
 		await logAudit({
 			req,
 			action: "USER_STATUS_UPDATED",
@@ -725,6 +825,13 @@ router.put("/admin/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 				success: false,
 				message: `Attempted forbidden fields: ${forbidden.join(", ")}`,
 			});
+			void logActivity({
+				req,
+				userId: id,
+				eventType: "ROLE_CHANGE_BLOCKED",
+				status: "BLOCKED",
+				metadata: { forbiddenFields: forbidden },
+			});
 			return res.status(403).json({ message: "role/isAdmin and security fields cannot be updated via this endpoint" });
 		}
 		const {
@@ -805,6 +912,22 @@ router.put("/admin/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 		}
 
 		await user.save();
+		void logActivity({
+			req,
+			userId: user._id.toString(),
+			eventType: "SETTINGS_UPDATED",
+			status: "SUCCESS",
+			metadata: { action: "ADMIN_USER_UPDATE" },
+		});
+		if (password && password.trim().length >= 6) {
+			void logActivity({
+				req,
+				userId: user._id.toString(),
+				eventType: "PASSWORD_CHANGE",
+				status: "SUCCESS",
+				metadata: { initiatedByAdmin: true },
+			});
+		}
 		await logAudit({
 			req,
 			action: "USER_ADMIN_UPDATED",
